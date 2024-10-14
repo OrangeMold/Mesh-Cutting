@@ -8,7 +8,10 @@ public class DrawCircularCut : MonoBehaviour
     private Camera cam;
     private bool isCutting;
     private float timeSinceLastPoint; // Timer to control point addition
-    public float pointInterval = 0.1f; // 100ms interval
+    public float pointInterval = 0.2f; // 200ms interval
+    public float minPointDistance = 0.1f; // Minimum distance between consecutive points to add them
+
+    private HashSet<GameObject> objectsToCut = new HashSet<GameObject>(); // Objects to apply physics to after all cuts
 
     void Start()
     {
@@ -30,6 +33,7 @@ public class DrawCircularCut : MonoBehaviour
             isCutting = true;
             cutPoints.Clear(); // Reset the list of points
             timeSinceLastPoint = 0f; // Reset the timer
+            objectsToCut.Clear(); // Reset the set of objects to apply physics to later
             AddPointToCut(cam.ScreenToWorldPoint(mouse)); // Add the starting point
         }
 
@@ -37,7 +41,7 @@ public class DrawCircularCut : MonoBehaviour
         {
             timeSinceLastPoint += Time.deltaTime; // Track time between points
 
-            if (timeSinceLastPoint >= pointInterval) // Check if 100ms have passed
+            if (timeSinceLastPoint >= pointInterval) // Check if 200ms have passed
             {
                 timeSinceLastPoint = 0f; // Reset the timer
                 AddPointToCut(cam.ScreenToWorldPoint(mouse)); // Add a new point
@@ -55,9 +59,10 @@ public class DrawCircularCut : MonoBehaviour
 
     private void AddPointToCut(Vector3 point)
     {
-        if (cutPoints.Count == 0 || Vector3.Distance(cutPoints[cutPoints.Count - 1], point) > 0.1f)
+        // Only add point if it's sufficiently far from the last one
+        if (cutPoints.Count == 0 || Vector3.Distance(cutPoints[cutPoints.Count - 1], point) > minPointDistance)
         {
-            cutPoints.Add(point); // Only add point if it's sufficiently far from the last one
+            cutPoints.Add(point);
         }
     }
 
@@ -73,7 +78,7 @@ public class DrawCircularCut : MonoBehaviour
     {
         if (cutPoints.Count < 2) return; // Not enough points to make a cut
 
-        // Loop through pairs of consecutive points and cut between them
+        // Loop through pairs of consecutive points and slice between them
         for (int i = 0; i < cutPoints.Count - 1; i++)
         {
             Vector3 pointA = cutPoints[i];
@@ -83,7 +88,8 @@ public class DrawCircularCut : MonoBehaviour
             Vector3 cutPlaneNormal = Vector3.Cross((pointA - pointB), (pointA - cam.transform.position)).normalized;
             Quaternion orientation = Quaternion.FromToRotation(Vector3.up, cutPlaneNormal);
 
-            var all = Physics.OverlapBox(pointInPlane, new Vector3(100, 0.01f, 100), orientation);
+            // Collect all objects that are affected by the cut, but delay physics
+            var all = Physics.OverlapBox(pointInPlane, new Vector3(10, 0.01f, 10), orientation); // Reduced box size
 
             foreach (var hit in all)
             {
@@ -91,7 +97,24 @@ public class DrawCircularCut : MonoBehaviour
                 if (filter != null)
                 {
                     Cutter.Cut(hit.gameObject, pointInPlane, cutPlaneNormal);
+                    objectsToCut.Add(hit.gameObject); // Collect the object to apply physics to later
                 }
+            }
+        }
+
+        // Apply physics only after all cuts are completed
+        ApplyPhysicsToCutObjects();
+    }
+
+    private void ApplyPhysicsToCutObjects()
+    {
+        foreach (var obj in objectsToCut)
+        {
+            Rigidbody rb = obj.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                // Apply a force to visualize the cut (this can be customized)
+                rb.AddForce(Vector3.up * 5f, ForceMode.Impulse);
             }
         }
     }
